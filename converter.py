@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import tempfile
@@ -8,15 +9,35 @@ class ffmpegError(Exception):
 class alacconvertError(Exception):
     pass
 
-def convert(fp: str):
+logger = logging.getLogger("to_alac.converter")
+
+def convert(fp: str, out_dir: str = None, overwrite: bool = False):
     """Convert a single track to ALAC using alacconvert and ffmpeg"""
+    if not os.path.isfile(fp):
+        raise FileNotFoundError
+
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+    if not os.path.isdir(out_dir):
+        raise NotADirectoryError
+
     name, ext = os.path.splitext(os.path.basename(fp))
     src_dir = os.path.dirname(fp)
+    if out_dir is None:
+        out_dir = src_dir
+
+    m4afile = os.path.join(out_dir, name + ".m4a")
+    if not overwrite and os.path.exists(m4afile):
+        raise FileExistsError
+
     with tempfile.TemporaryDirectory() as tmpd:
         wavfile = os.path.join(tmpd, name + ".wav")
-
         # create ffmpeg process
-        args = ["ffmpeg", "-i", fp, "-f", "wav", wavfile]
+        args = ["ffmpeg", "-n", "-i", fp, "-f", "wav", wavfile]
+        logger.debug("Converting to WAV")
+        logger.debug(
+            "ffmpeg command: \"{}\"".format("\" \"".join(args))
+        )
         ffmpeg = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -26,6 +47,7 @@ def convert(fp: str):
         ffmpeg.wait()
         if ffmpeg.returncode != 0:
             raise ffmpegError("ffmpeg returned non-zero return code")
+        logger.debug("ffmpeg exited normally")
 
         # convert with alacconvert to caf
         alacconvertPath = os.path.join(
@@ -33,6 +55,10 @@ def convert(fp: str):
         )
         caffile = os.path.join(tmpd, name + ".caf")
         args = [alacconvertPath, wavfile, caffile]
+        logger.debug("Converting to ALAC")
+        logger.debug(
+            "alacconvert command: \"{}\"".format("\" \"".join(args))
+        )
         alacconvert = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -44,15 +70,18 @@ def convert(fp: str):
             raise alacconvertError(
                 "alacconvert returned non-zero return code"
             )
+        logger.debug("alacconvert exited normally")
 
         # convert back via ffmpeg
-        m4afile = os.path.join(src_dir, name + ".m4a")
-        # TODO: check if exists
         args = [
-            "ffmpeg", "-i", fp, "-i", caffile, "-map", "1", "-acodec",
-            "copy", "-map_metadata", "0", "-map_metadata:s:a", "0:s:a",
-            m4afile
+            "ffmpeg", "-y", "-i", fp, "-i", caffile, "-map", "1",
+            "-acodec", "copy", "-map_metadata", "0",
+            "-map_metadata:s:a", "0:s:a", m4afile
         ]
+        logger.debug("Changing container to M4A")
+        logger.debug(
+            "ffmpeg command: \"{}\"".format("\" \"".join(args))
+        )
         ffmpeg = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
@@ -61,3 +90,4 @@ def convert(fp: str):
         ffmpeg.wait()
         if ffmpeg.returncode != 0:
             raise ffmpegError("ffmpeg returned non-zero return code")
+        logger.debug("ffmpeg exited normally")

@@ -1,3 +1,4 @@
 nose
 coverage==4.3
 codeclimate-test-reporter
+docopt>=0.6.2
